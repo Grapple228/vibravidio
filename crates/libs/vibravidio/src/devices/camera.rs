@@ -8,9 +8,6 @@ use vibravidio_thread::Priority;
 
 use crate::platform::DefaultCameraBackend;
 
-#[cfg(target_arch = "wasm32")]
-use tokio_with_wasm::task::JoinHandle;
-#[cfg(not(target_arch = "wasm32"))]
 use vibravidio_thread::thread::{self, JoinHandle};
 
 pub struct Camera {

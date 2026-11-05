@@ -33,7 +33,11 @@ members = [
     "crates/libs/vibravidio-v4l2",
 ]
 
+
+
 [workspace.dependencies]
+
+
 # Tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -42,3 +46,11 @@ derive_more = {version = "1", features = ["from"] }
 
 # Dev
 anyhow = "1"
+
+# ─── Async ───
+tokio = { version = "1", features = [
+    "sync",
+] }
+tokio_with_wasm = { version = "0.9.2", features = [
+    "sync",
+] }

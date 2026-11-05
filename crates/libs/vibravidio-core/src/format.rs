@@ -21,7 +21,7 @@ impl PixelFormat {
 
     /// Полный размер буфера одного кадра с учётом stride и planarity.
     /// `stride` — Y-plane stride (bytesperline из драйвера).
-    pub const fn buffer_len(self, width: u32, height: u32, stride: u32) -> usize {
+    pub const fn buffer_len(self, _width: u32, height: u32, stride: u32) -> usize {
         match self {
             PixelFormat::Nv12 | PixelFormat::I420 => (stride * height) as usize * 3 / 2,
             _ => (stride * height) as usize,
