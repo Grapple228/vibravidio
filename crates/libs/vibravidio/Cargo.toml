@@ -1,0 +1,42 @@
+[package]
+name = "vibravidio"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+description.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[features]
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# -- Core
+vibravidio-core = { path = "../../libs/vibravidio-core" }
+vibravidio-thread = { path = "../../libs/vibravidio-thread" }
+vibravidio-ringbuffer = { path = "../../libs/vibravidio-ringbuffer" }
+
+# -- Tracing
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+# -- Others
+derive_more = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+vibravidio-v4l2 = { path = "../../libs/vibravidio-v4l2" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+
+
+[dev-dependencies]
+anyhow = { workspace = true }
+
+[build-dependencies]

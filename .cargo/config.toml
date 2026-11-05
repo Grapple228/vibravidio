@@ -1,0 +1,14 @@
+# Cargo config file.
+# See: https://doc.rust-lang.org/cargo/reference/config.html
+
+# Environments variables set for all `cargo ...` commands.
+[env]
+# Scope down tracing, to filter out external lib tracing.
+RUST_LOG = "debug"
+
+# [unstable]
+# build-std = ["std", "panic_abort"]
+
+[build]
+target = "x86_64-unknown-linux-gnu"
+# target = "wasm32-unknown-unknown"

@@ -1,0 +1,44 @@
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = ""
+authors = ["grapple228 <greenapple228882@yandex.ru>"]
+readme = "readme.md"
+repository = "https://github.com/grapple228/vibravidio.git"
+
+[profile.release]
+opt-level = 1
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[workspace.lints.rust]
+# unsafe_code = "forbid"
+# unused = { level = "allow", priority = -1 } # For exploratory dev.
+
+[workspace]
+resolver = "3"
+members = [
+    # -- Application Libraries
+    "crates/libs/vibravidio",
+    "crates/libs/vibravidio-core",
+    "crates/libs/vibravidio-testpattern",
+    "crates/libs/vibravidio-thread",
+    "crates/libs/vibravidio-ringbuffer",
+    "crates/libs/vibravidio-v4l2",
+]
+
+[workspace.dependencies]
+# Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+#Other
+derive_more = {version = "1", features = ["from"] }
+
+# Dev
+anyhow = "1"
