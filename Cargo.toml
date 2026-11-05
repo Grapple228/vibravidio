@@ -30,7 +30,9 @@ members = [
     "crates/libs/vibravidio-testpattern",
     "crates/libs/vibravidio-thread",
     "crates/libs/vibravidio-ringbuffer",
-    "crates/libs/vibravidio-v4l2",
+    "crates/libs/vibravidio-camera-v4l2",
+    "crates/libs/vibravidio-screen-x11",
+    "crates/libs/vibravidio-screen-wayland",
 ]
 
 

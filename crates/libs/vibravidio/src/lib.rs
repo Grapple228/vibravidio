@@ -15,43 +15,26 @@ pub mod thread {
 
 pub mod devices;
 
-pub mod platform {
-    #[cfg(target_os = "linux")]
-    pub type DefaultCameraBackend = vibravidio_v4l2::V4l2Backend;
-
-    // #[cfg(target_arch = "wasm32")]
-    // pub type DefaultCameraBackend = vibravidio_web::WebBackend;
-
-    pub const MAX_FRAME_BYTES: usize = 1920 * 1080 * 4;
-    pub const RING_SIZE: usize = 4;
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use vibravidio_core::VideoBackend;
-
-        #[test]
-        fn max_frame_bytes_is_1080p_rgba() {
-            assert_eq!(MAX_FRAME_BYTES, 1920 * 1080 * 4);
-        }
-
-        #[test]
-        fn ring_size_is_positive() {
-            assert!(RING_SIZE > 0);
-        }
-
-        #[test]
-        fn default_backend_implements_trait() {
-            fn _assert<B: VideoBackend>() {}
-            _assert::<DefaultCameraBackend>();
-        }
-    }
-}
+pub mod platform;
 
 pub mod backend {
-    #[cfg(target_os = "linux")]
-    pub mod v4l2 {
-        pub use vibravidio_v4l2::*;
+    pub mod camera {
+        #[cfg(target_os = "linux")]
+        pub mod v4l2 {
+            pub use vibravidio_camera_v4l2::*;
+        }
+    }
+
+    pub mod screen {
+        #[cfg(target_os = "linux")]
+        pub mod wayland {
+            pub use vibravidio_screen_wayland::*;
+        }
+
+        #[cfg(target_os = "linux")]
+        pub mod x11 {
+            pub use vibravidio_screen_x11::*;
+        }
     }
 }
 
@@ -86,7 +69,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn backend_v4l2_is_accessible() {
-        let _ = backend::v4l2::V4l2Backend::open(
+        let _ = backend::camera::v4l2::V4l2Backend::open(
             "/dev/video_nonexistent_999",
             vibravidio_core::SourceKind::Camera,
         );

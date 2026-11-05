@@ -29,7 +29,9 @@ tracing-subscriber = { workspace = true }
 derive_more = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-vibravidio-v4l2 = { path = "../../libs/vibravidio-v4l2" }
+vibravidio-camera-v4l2 = { path = "../../libs/vibravidio-camera-v4l2" }
+vibravidio-screen-x11 = { path = "../../libs/vibravidio-screen-x11" }
+vibravidio-screen-wayland = { path = "../../libs/vibravidio-screen-wayland" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 

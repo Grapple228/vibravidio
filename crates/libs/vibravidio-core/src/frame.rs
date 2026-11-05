@@ -34,8 +34,8 @@ impl AsRef<[u8]> for OwnedFrame {
 mod tests {
     use super::*;
     use crate::{ColorSpace, PixelFormat};
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     fn info() -> FrameInfo {
         FrameInfo {

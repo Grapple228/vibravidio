@@ -1,5 +1,5 @@
 [package]
-name = "vibravidio-v4l2"
+name = "vibravidio-screen-x11"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -8,9 +8,6 @@ description.workspace = true
 repository.workspace = true
 readme.workspace = true
 
-[features]
-
-
 [lib]
 doctest = false
 
@@ -18,15 +15,14 @@ doctest = false
 workspace = true
 
 [dependencies]
-# -- App Libs
-vibravidio-core = { path = "../../libs/vibravidio-core" }
+vibravidio-core = { path = "../vibravidio-core" }
+
 # -- Tracing
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 # -- Others
 derive_more = { workspace = true }
+bytes = "1.12.1"
 
 [dev-dependencies]
 anyhow = { workspace = true }
-
-[build-dependencies]

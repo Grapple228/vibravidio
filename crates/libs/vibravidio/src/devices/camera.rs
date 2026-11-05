@@ -5,10 +5,9 @@ use std::time::Duration;
 use vibravidio_core::{Error, OwnedFrame, Result, SourceKind, VideoBackend, VideoConfig};
 use vibravidio_ringbuffer::BufferWriter;
 use vibravidio_thread::Priority;
+use vibravidio_thread::thread::{self, JoinHandle};
 
 use crate::platform::DefaultCameraBackend;
-
-use vibravidio_thread::thread::{self, JoinHandle};
 
 pub struct Camera {
     config: VideoConfig,
@@ -45,6 +44,11 @@ impl Camera {
         let mut backend = DefaultCameraBackend::open("default", SourceKind::Camera)?;
         backend.configure(&self.config)?;
 
+        // Флаг ДО spawn: поток проверяет его первой инструкцией в цикле.
+        // Если store идёт после spawn — поток может увидеть false и
+        // мгновенно выйти (race).
+        self.running.store(true, Ordering::SeqCst);
+
         let running = self.running.clone();
         let poll = self.poll_interval;
 
@@ -80,7 +84,6 @@ impl Camera {
         });
 
         self.handle = Some(handle);
-        self.running.store(true, Ordering::SeqCst);
         Ok(())
     }
 
@@ -119,22 +122,16 @@ mod tests {
         CAMERA_LOCK.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Проверяет, что на машине вообще есть capture-устройство.
-    /// Дешёвая проверка через существование файла — не открывает устройство.
     fn any_video_node_exists() -> bool {
         (0..32u32).any(|i| std::path::Path::new(&format!("/dev/video{i}")).exists())
     }
 
-    /// Пытается открыть камеру через "default". Не держит стрим.
     fn open_camera_for_probe() -> bool {
         DefaultCameraBackend::open("default", SourceKind::Camera).is_ok()
     }
 
-    // ---- Тесты без камеры ---------------------------------------------
-
     #[test]
     fn camera_new_does_not_open_device() {
-        // Camera::new только сохраняет config — устройство не открывается.
         let config = VideoConfig::new(640, 480, 30, PixelFormat::Yuyv);
         let camera = Camera::new(config);
         assert!(camera.is_ok());
@@ -144,7 +141,7 @@ mod tests {
     fn run_fails_without_device() {
         let _guard = camera_guard();
         if any_video_node_exists() && open_camera_for_probe() {
-            eprintln!("skipping: camera is available");
+            tracing::debug!("skipping: camera is available");
             return;
         }
         let config = VideoConfig::new(640, 480, 30, PixelFormat::Yuyv);
@@ -159,13 +156,11 @@ mod tests {
         assert!(r.is_err());
     }
 
-    // ---- Тесты с камерой (сериализованы) ------------------------------
-
     #[test]
     fn full_pipeline_receives_frames() {
         let _guard = camera_guard();
         if !open_camera_for_probe() {
-            eprintln!("skipping: no camera");
+            tracing::debug!("skipping: no camera");
             return;
         }
 
@@ -211,7 +206,7 @@ mod tests {
     fn stop_terminates_producer() {
         let _guard = camera_guard();
         if !open_camera_for_probe() {
-            eprintln!("skipping: no camera");
+            tracing::debug!("skipping: no camera");
             return;
         }
 
@@ -231,10 +226,8 @@ mod tests {
         std::thread::sleep(Duration::from_millis(300));
         camera.stop();
 
-        // Дренируем то, что producer успел положить до stop
         while reader.read_frame().is_some() {}
 
-        // После stop новых быть не должно
         std::thread::sleep(Duration::from_millis(200));
         assert!(reader.read_frame().is_none());
     }
@@ -243,13 +236,12 @@ mod tests {
     fn ring_overflow_drops_frame() {
         let _guard = camera_guard();
         if !open_camera_for_probe() {
-            eprintln!("skipping: no camera");
+            tracing::debug!("skipping: no camera");
             return;
         }
 
         let config = VideoConfig::new(320, 240, 30, PixelFormat::Yuyv);
         let mut camera = Camera::new(config).unwrap();
-        // N=1 — почти гарантированно переполнится за 500ms
         let (writer, reader) = create_pair::<1, OwnedFrame>();
 
         camera
@@ -279,7 +271,7 @@ mod tests {
     fn drop_stops_thread() {
         let _guard = camera_guard();
         if !open_camera_for_probe() {
-            eprintln!("skipping: no camera");
+            tracing::debug!("skipping: no camera");
             return;
         }
         let config = VideoConfig::new(320, 240, 30, PixelFormat::Yuyv);
@@ -296,14 +288,13 @@ mod tests {
                 .expect("run");
             std::thread::sleep(Duration::from_millis(200));
         }
-        // Drop → stop → join. Если зависнет — тест повиснет.
     }
 
     #[test]
     fn data_size_matches_configured() {
         let _guard = camera_guard();
         if !open_camera_for_probe() {
-            eprintln!("skipping: no camera");
+            tracing::debug!("skipping: no camera");
             return;
         }
 
@@ -339,7 +330,7 @@ mod tests {
     fn double_run_returns_already_running() {
         let _guard = camera_guard();
         if !open_camera_for_probe() {
-            eprintln!("skipping: no camera");
+            tracing::debug!("skipping: no camera");
             return;
         }
 

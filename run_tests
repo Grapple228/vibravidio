@@ -1,0 +1,7 @@
+# Все тесты workspace
+cargo test -r --workspace
+
+# wayland
+cargo test -r -p vibravidio -- \
+    --ignored --test-threads=1 --nocapture \
+    wayland_screen_capture_manual
