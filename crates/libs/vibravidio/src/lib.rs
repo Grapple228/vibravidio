@@ -23,6 +23,16 @@ pub mod backend {
         pub mod v4l2 {
             pub use vibravidio_camera_v4l2::*;
         }
+
+        #[cfg(windows)]
+        pub mod mf {
+            pub use vibravidio_camera_mf::*;
+        }
+
+        #[cfg(windows)]
+        pub mod direct {
+            pub use vibravidio_camera_direct::*;
+        }
     }
 
     pub mod screen {
@@ -35,15 +45,20 @@ pub mod backend {
         pub mod x11 {
             pub use vibravidio_screen_x11::*;
         }
+
+        #[cfg(windows)]
+        pub mod win {
+            pub use vibravidio_screen_win::*;
+        }
     }
 }
 
-#[cfg(not(target_os = "linux"))]
-compile_error!("vibravidio currently supports only Linux");
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+compile_error!("vibravidio currently supports only Linux and Windows");
 
 #[cfg(test)]
 mod tests {
-    use crate::{backend, platform};
+    use crate::platform;
 
     #[test]
     fn core_reexports_are_accessible() {
@@ -69,7 +84,7 @@ mod tests {
     fn backend_v4l2_is_accessible() {
         use vibravidio_core::CameraBackend;
 
-        let _ = backend::camera::v4l2::V4l2Backend::open("/dev/video_nonexistent_999");
+        let _ = crate::backend::camera::v4l2::V4l2Backend::open("/dev/video_nonexistent_999");
     }
 
     #[test]

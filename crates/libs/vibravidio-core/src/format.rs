@@ -4,6 +4,7 @@ pub enum PixelFormat {
     Rgba8,
     Bgra8,
     Rgb8,
+    Bgr8,
     Nv12,
     I420,
     Yuyv,
@@ -13,7 +14,7 @@ impl PixelFormat {
     pub const fn bytes_per_pixel(self) -> usize {
         match self {
             PixelFormat::Rgba8 | PixelFormat::Bgra8 => 4,
-            PixelFormat::Rgb8 => 3,
+            PixelFormat::Rgb8 | PixelFormat::Bgr8 => 3,
             PixelFormat::Yuyv => 2,
             PixelFormat::Nv12 | PixelFormat::I420 => 0,
         }
@@ -36,7 +37,7 @@ pub enum ColorSpace {
     Bt709,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VideoFormatInfo {
     pub width: u32,
     pub height: u32,

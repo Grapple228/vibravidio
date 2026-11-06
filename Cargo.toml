@@ -31,10 +31,12 @@ members = [
     "crates/libs/vibravidio-thread",
     "crates/libs/vibravidio-ringbuffer",
     "crates/libs/vibravidio-camera-v4l2",
+    "crates/libs/vibravidio-camera-mf",
+    "crates/libs/vibravidio-camera-direct",
     "crates/libs/vibravidio-screen-x11",
     "crates/libs/vibravidio-screen-wayland",
+    "crates/libs/vibravidio-screen-win",
 ]
-
 
 
 [workspace.dependencies]
@@ -44,15 +46,12 @@ members = [
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 #Other
-derive_more = {version = "1", features = ["from"] }
+derive_more = { version = "1", features = ["from"] }
+bytes = "1.12.1"
 
 # Dev
 anyhow = "1"
 
 # ─── Async ───
-tokio = { version = "1", features = [
-    "sync",
-] }
-tokio_with_wasm = { version = "0.9.2", features = [
-    "sync",
-] }
+tokio = { version = "1", features = ["sync"] }
+tokio_with_wasm = { version = "0.9.2", features = ["sync"] }

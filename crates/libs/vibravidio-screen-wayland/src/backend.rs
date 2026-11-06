@@ -1,15 +1,14 @@
-use std::future::Future;
 use std::sync::mpsc::{Receiver, sync_channel};
 use std::time::Instant;
 
 use tracing::info;
 use vibravidio_core::{
     CaptureSource, CapturedFrame, ColorSpace, Error, FrameInfo, PixelFormat, Result, ScreenBackend,
-    SourceDiscovery, VideoBackend, VideoConfig,
+    ScreenBackendAsync, SourceDiscovery, VideoBackend, VideoConfig,
 };
 
 use crate::pipewire_reader::{FrameData, PipeWireReader};
-use crate::portal::{PortalStream, open_portal_stream, open_portal_stream_async};
+use crate::portal::{PortalStream, open_portal_stream_async};
 
 pub struct WaylandScreenBackend {
     receiver: Receiver<FrameData>,
@@ -28,25 +27,6 @@ pub struct WaylandScreenBackend {
 }
 
 impl WaylandScreenBackend {
-    /// Sync open. Внутри — `open_portal_stream()` (spawn + block_on).
-    /// Для `Screen::run` в тестах и sync-fallback в `DefaultScreenBackend`.
-    pub fn open_sync(_name: &str) -> Result<Self> {
-        let portal = open_portal_stream().map_err(|e| {
-            tracing::warn!("Wayland portal error: {e}");
-            Error::UnsupportedFormat
-        })?;
-        Self::from_portal(portal)
-    }
-
-    /// Async open. Единственный правильный путь в проде.
-    pub async fn open_async() -> Result<Self> {
-        let portal = open_portal_stream_async().await.map_err(|e| {
-            tracing::warn!("Wayland portal error: {e}");
-            Error::UnsupportedFormat
-        })?;
-        Self::from_portal(portal)
-    }
-
     fn from_portal(portal: PortalStream) -> Result<Self> {
         info!(
             node_id = portal.node_id,
@@ -83,14 +63,23 @@ impl ScreenBackend for WaylandScreenBackend {
         })
     }
 
-    fn open_source(_source: &CaptureSource) -> impl Future<Output = Result<Self>> + Send {
-        // Реальный async — portal через D-Bus.
-        async move { Self::open_async().await }
+    fn open_source(_source: &CaptureSource) -> Result<Self> {
+        // Wayland не умеет sync open — портал = D-Bus + интерактивный диалог.
+        // Используй `ScreenBackendAsync::open_source_async`.
+        Err(Error::AsyncRequired)
     }
 
     // take_restore_token — default None (без token store пока).
-    // Источник `CaptureSourceKind::Remembered` игнорируется, пока нет store;
-    // добавление — отдельный этап вместе с `PersistMode::Application`.
+}
+
+impl ScreenBackendAsync for WaylandScreenBackend {
+    async fn open_source_async(_source: &CaptureSource) -> Result<Self> {
+        let portal = open_portal_stream_async().await.map_err(|e| {
+            tracing::warn!("Wayland portal error: {e}");
+            Error::UnsupportedFormat
+        })?;
+        Self::from_portal(portal)
+    }
 }
 
 impl VideoBackend for WaylandScreenBackend {

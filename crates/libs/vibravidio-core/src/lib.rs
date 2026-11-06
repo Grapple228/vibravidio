@@ -6,7 +6,7 @@ mod frame;
 
 pub use backend::{
     CameraBackend, CameraBackendAsync, CaptureSource, CaptureSourceKind, CapturedFrame,
-    ScreenBackend, SourceDiscovery, VideoBackend, VideoBackendAsync,
+    ScreenBackend, ScreenBackendAsync, SourceDiscovery, VideoBackend, VideoBackendAsync,
 };
 pub use config::VideoConfig;
 pub use error::{Error, Result};

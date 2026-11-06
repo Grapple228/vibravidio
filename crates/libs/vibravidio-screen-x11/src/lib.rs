@@ -1,9 +1,13 @@
+#[cfg(target_os = "linux")]
 mod backend;
+#[cfg(target_os = "linux")]
 mod ffi;
 
+#[cfg(target_os = "linux")]
 pub use backend::X11ScreenBackend;
 
 #[cfg(test)]
+#[cfg(target_os = "linux")]
 mod tests {
     use super::*;
 

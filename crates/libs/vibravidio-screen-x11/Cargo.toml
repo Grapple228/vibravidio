@@ -15,14 +15,15 @@ doctest = false
 workspace = true
 
 [dependencies]
+
+[target.'cfg(target_os = "linux")'.dependencies]
 vibravidio-core = { path = "../vibravidio-core" }
 
 # -- Tracing
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 # -- Others
 derive_more = { workspace = true }
-bytes = "1.12.1"
+bytes = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

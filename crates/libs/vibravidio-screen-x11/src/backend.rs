@@ -1,6 +1,5 @@
 use std::cell::Cell;
 use std::ffi::{c_int, c_uint};
-use std::future::Future;
 use std::ptr::NonNull;
 use std::sync::Once;
 use std::time::{Duration, Instant};
@@ -268,14 +267,11 @@ impl ScreenBackend for X11ScreenBackend {
         }]))
     }
 
-    fn open_source(source: &CaptureSource) -> impl Future<Output = Result<Self>> + Send {
+    fn open_source(source: &CaptureSource) -> Result<Self> {
         let id = source.id.clone();
-        // Sync под капотом — future готова сразу, без `.await` внутри.
-        async move {
-            match id.as_str() {
-                "x11:root" | "default" => Self::open_sync("default"),
-                _ => Err(Error::InvalidConfig),
-            }
+        match id.as_str() {
+            "x11:root" | "default" => Self::open_sync("default"),
+            _ => Err(Error::InvalidConfig),
         }
     }
 }

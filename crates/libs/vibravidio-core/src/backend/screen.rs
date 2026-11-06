@@ -1,5 +1,3 @@
-use std::future::Future;
-
 use crate::{Result, VideoBackend};
 
 #[derive(Debug, Clone)]
@@ -40,12 +38,18 @@ pub trait ScreenBackend: VideoBackend + Sized {
     /// Wayland = чтение токенов с диска (мкс).
     fn discover() -> Result<SourceDiscovery>;
 
-    /// Открыть конкретный источник. Async — Wayland делает D-Bus.
-    /// Sync backends (X11, Windows) возвращают ready future без `.await` внутри.
-    fn open_source(source: &CaptureSource) -> impl Future<Output = Result<Self>> + Send;
+    /// Открыть конкретный источник
+    fn open_source(source: &CaptureSource) -> Result<Self>;
 
     /// Wayland: забрать `restore_token` после успешного open.
     fn take_restore_token(&mut self) -> Option<String> {
         None
+    }
+}
+
+#[allow(async_fn_in_trait)]
+pub trait ScreenBackendAsync: ScreenBackend + Sized {
+    async fn open_source_async(source: &CaptureSource) -> Result<Self> {
+        Self::open_source(source)
     }
 }

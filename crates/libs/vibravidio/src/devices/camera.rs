@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-
 use vibravidio_core::{CameraBackend, Error, OwnedFrame, Result, VideoBackend, VideoConfig};
 use vibravidio_ringbuffer::BufferWriter;
 use vibravidio_thread::Priority;
@@ -41,21 +40,37 @@ impl Camera {
             return Err(Error::AlreadyRunning);
         }
 
-        let mut backend = DefaultCameraBackend::open("default")?;
-        backend.configure(&self.config)?;
-
-        // Флаг ДО spawn: поток проверяет его первой инструкцией в цикле.
         self.running.store(true, Ordering::SeqCst);
 
         let running = self.running.clone();
+        let running_for_setup = running.clone();
+        let config = self.config;
         let poll = self.poll_interval;
+        let (setup_tx, setup_rx) = std::sync::mpsc::channel::<Result<()>>();
 
         let handle = thread::spawn(move || {
-            let _handle = vibravidio_thread::configure_thread(
+            let _h = vibravidio_thread::configure_thread(
                 priority,
                 #[cfg(target_os = "windows")]
                 mmcss_value,
             );
+
+            // MF `IMFSourceReader` thread-affine: open/configure ДОЛЖНЫ
+            // происходить на том же потоке, где будет capture_frame.
+            let mut backend = match DefaultCameraBackend::open("default") {
+                Ok(b) => b,
+                Err(e) => {
+                    let _ = setup_tx.send(Err(e));
+                    running_for_setup.store(false, Ordering::SeqCst);
+                    return;
+                }
+            };
+            if let Err(e) = backend.configure(&config) {
+                let _ = setup_tx.send(Err(e));
+                running_for_setup.store(false, Ordering::SeqCst);
+                return;
+            }
+            let _ = setup_tx.send(Ok(()));
 
             while running.load(Ordering::SeqCst) {
                 match backend.capture_frame() {
@@ -66,9 +81,7 @@ impl Camera {
                             tracing::warn!("video ring full, dropping frame");
                         }
                     }
-                    Ok(None) => {
-                        thread::sleep(poll);
-                    }
+                    Ok(None) => thread::sleep(poll),
                     Err(Error::SizeChanged { old, new }) => {
                         tracing::warn!("size {old:?} -> {new:?}");
                         continue;
@@ -81,8 +94,24 @@ impl Camera {
             }
         });
 
-        self.handle = Some(handle);
-        Ok(())
+        match setup_rx.recv() {
+            Ok(Ok(())) => {
+                self.handle = Some(handle);
+                Ok(())
+            }
+            Ok(Err(e)) => {
+                let _ = handle.join();
+                Err(e)
+            }
+            Err(_) => {
+                let _ = handle.join();
+                self.running.store(false, Ordering::SeqCst);
+                Err(Error::Ffi {
+                    code: -1,
+                    message: "camera setup thread panicked",
+                })
+            }
+        }
     }
 
     pub fn stop(&mut self) {

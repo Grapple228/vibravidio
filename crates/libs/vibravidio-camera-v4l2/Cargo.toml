@@ -17,6 +17,8 @@ doctest = false
 workspace = true
 
 [dependencies]
+
+[target.'cfg(target_os = "linux")'.dependencies]
 # -- App Libs
 vibravidio-core = { path = "../../libs/vibravidio-core" }
 # -- Tracing

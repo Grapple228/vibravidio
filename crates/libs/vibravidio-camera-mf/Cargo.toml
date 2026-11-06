@@ -1,0 +1,36 @@
+[package]
+name = "vibravidio-camera-mf"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+description.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[features]
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# -- App Libs
+vibravidio-core = { path = "../../libs/vibravidio-core" }
+# -- Tracing
+tracing = { workspace = true }
+
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+] }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+
+[build-dependencies]

@@ -2,7 +2,9 @@ mod camera;
 mod screen;
 
 pub use camera::{CameraBackend, CameraBackendAsync};
-pub use screen::{CaptureSource, CaptureSourceKind, ScreenBackend, SourceDiscovery};
+pub use screen::{
+    CaptureSource, CaptureSourceKind, ScreenBackend, ScreenBackendAsync, SourceDiscovery,
+};
 
 use crate::{FrameInfo, Result, VideoConfig};
 
