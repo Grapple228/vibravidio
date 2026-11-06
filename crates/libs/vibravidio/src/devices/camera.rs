@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use vibravidio_core::{Error, OwnedFrame, Result, SourceKind, VideoBackend, VideoConfig};
+use vibravidio_core::{CameraBackend, Error, OwnedFrame, Result, VideoBackend, VideoConfig};
 use vibravidio_ringbuffer::BufferWriter;
 use vibravidio_thread::Priority;
 use vibravidio_thread::thread::{self, JoinHandle};
@@ -41,12 +41,10 @@ impl Camera {
             return Err(Error::AlreadyRunning);
         }
 
-        let mut backend = DefaultCameraBackend::open("default", SourceKind::Camera)?;
+        let mut backend = DefaultCameraBackend::open("default")?;
         backend.configure(&self.config)?;
 
         // Флаг ДО spawn: поток проверяет его первой инструкцией в цикле.
-        // Если store идёт после spawn — поток может увидеть false и
-        // мгновенно выйти (race).
         self.running.store(true, Ordering::SeqCst);
 
         let running = self.running.clone();
@@ -106,16 +104,10 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
     use std::time::Instant;
-    use vibravidio_core::{PixelFormat, VideoConfig};
+    use vibravidio_core::{CameraBackend, PixelFormat, VideoConfig};
     use vibravidio_ringbuffer::create_pair;
     use vibravidio_thread::Priority;
 
-    /// V4L2 разрешает только одного стримера на устройство. `cargo test`
-    /// гоняет тесты параллельно — несколько тестов одновременно лезут на
-    /// /dev/video0, и второй получает EBUSY от S_FMT/REQBUFS/STREAMON.
-    /// Сериализуем доступ через статический мьютекс. `unwrap_or_else(|e|
-    /// e.into_inner())` — чтобы тест, паникнувший под локом, не отравил
-    /// остальные (тесты должны видеть свои ошибки, а не Mutex::Poisoned).
     static CAMERA_LOCK: Mutex<()> = Mutex::new(());
 
     fn camera_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -127,7 +119,7 @@ mod tests {
     }
 
     fn open_camera_for_probe() -> bool {
-        DefaultCameraBackend::open("default", SourceKind::Camera).is_ok()
+        DefaultCameraBackend::open("default").is_ok()
     }
 
     #[test]

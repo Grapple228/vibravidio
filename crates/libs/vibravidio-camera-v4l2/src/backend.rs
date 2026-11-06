@@ -4,7 +4,7 @@ use std::os::fd::{AsRawFd, RawFd};
 use std::time::Instant;
 
 use vibravidio_core::{
-    CapturedFrame, ColorSpace, Error, FrameInfo, PixelFormat, Result, SourceKind, VideoBackend,
+    CameraBackend, CapturedFrame, ColorSpace, Error, FrameInfo, PixelFormat, Result, VideoBackend,
     VideoConfig, VideoFormatInfo,
 };
 
@@ -230,68 +230,10 @@ impl V4l2Backend {
 }
 
 impl VideoBackend for V4l2Backend {
-    fn open(name: &str, kind: SourceKind) -> Result<Self> {
-        if !matches!(kind, SourceKind::Camera) {
-            return Err(Error::InvalidConfig);
-        }
-
-        // open_device уже делает QUERYCAP для "default"-пути, но не для явного.
-        // Делаем QUERYCAP один раз здесь для обоих случаев.
-        let (file, fd) = open_device(name)?;
-
-        let mut cap: ffi::v4l2_capability = unsafe { std::mem::zeroed() };
-        let r = unsafe { ffi::ioctl(fd, ffi::VIDIOC_QUERYCAP, &mut cap as *mut _) };
-        if r < 0 {
-            return Err(Error::DeviceNotFound);
-        }
-        let caps = if cap.capabilities & ffi::V4L2_CAP_DEVICE_CAPS != 0 {
-            cap.device_caps
-        } else {
-            cap.capabilities
-        };
-        if caps & ffi::V4L2_CAP_VIDEO_CAPTURE == 0 || caps & ffi::V4L2_CAP_STREAMING == 0 {
-            return Err(Error::InvalidConfig);
-        }
-
-        Ok(Self {
-            _file: file,
-            fd,
-            buffers: Vec::new(),
-            width: 0,
-            height: 0,
-            stride: 0,
-            format: PixelFormat::Yuyv,
-            color: ColorSpace::Bt601,
-            seq: 0,
-            start: Instant::now(),
-            pending_qbuf: None,
-            streaming: false,
-        })
-    }
-
     fn configure(&mut self, config: &VideoConfig) -> Result<()> {
         self.stop_streaming();
         self.unmap_buffers();
         self.setup_stream(config)
-    }
-
-    fn supported_formats(&self) -> Result<Vec<VideoFormatInfo>> {
-        Ok(vec![
-            VideoFormatInfo {
-                width: 1280,
-                height: 720,
-                fps: 30,
-                format: PixelFormat::Yuyv,
-                color: ColorSpace::Bt601,
-            },
-            VideoFormatInfo {
-                width: 640,
-                height: 480,
-                fps: 30,
-                format: PixelFormat::Yuyv,
-                color: ColorSpace::Bt601,
-            },
-        ])
     }
 
     fn capture_frame(&mut self) -> Result<Option<CapturedFrame<'_>>> {
@@ -343,6 +285,62 @@ impl VideoBackend for V4l2Backend {
     }
 }
 
+impl CameraBackend for V4l2Backend {
+    fn open(name: &str) -> Result<Self> {
+        // open_device уже делает QUERYCAP для "default"-пути, но не для явного.
+        // Делаем QUERYCAP один раз здесь для обоих случаев.
+        let (file, fd) = open_device(name)?;
+
+        let mut cap: ffi::v4l2_capability = unsafe { std::mem::zeroed() };
+        let r = unsafe { ffi::ioctl(fd, ffi::VIDIOC_QUERYCAP, &mut cap as *mut _) };
+        if r < 0 {
+            return Err(Error::DeviceNotFound);
+        }
+        let caps = if cap.capabilities & ffi::V4L2_CAP_DEVICE_CAPS != 0 {
+            cap.device_caps
+        } else {
+            cap.capabilities
+        };
+        if caps & ffi::V4L2_CAP_VIDEO_CAPTURE == 0 || caps & ffi::V4L2_CAP_STREAMING == 0 {
+            return Err(Error::InvalidConfig);
+        }
+
+        Ok(Self {
+            _file: file,
+            fd,
+            buffers: Vec::new(),
+            width: 0,
+            height: 0,
+            stride: 0,
+            format: PixelFormat::Yuyv,
+            color: ColorSpace::Bt601,
+            seq: 0,
+            start: Instant::now(),
+            pending_qbuf: None,
+            streaming: false,
+        })
+    }
+
+    fn supported_formats(&self) -> Result<Vec<VideoFormatInfo>> {
+        Ok(vec![
+            VideoFormatInfo {
+                width: 1280,
+                height: 720,
+                fps: 30,
+                format: PixelFormat::Yuyv,
+                color: ColorSpace::Bt601,
+            },
+            VideoFormatInfo {
+                width: 640,
+                height: 480,
+                fps: 30,
+                format: PixelFormat::Yuyv,
+                color: ColorSpace::Bt601,
+            },
+        ])
+    }
+}
+
 impl Drop for V4l2Backend {
     fn drop(&mut self) {
         let _ = self.close();
@@ -356,14 +354,14 @@ mod tests {
 
     fn open_first_available_camera() -> Option<V4l2Backend> {
         // Через "default" — теперь работает, если есть capture-устройство.
-        match V4l2Backend::open("default", SourceKind::Camera) {
+        match V4l2Backend::open("default") {
             Ok(b) => Some(b),
             Err(_) => {
                 // Fallback: явные пути (некоторые конфиги не дают VIDEO_CAPTURE
                 // на video0, но дают на video1 и т.д. — open_device это уже
                 // перебирает, так что это чисто перестраховка).
                 for dev in ["/dev/video0", "/dev/video1", "/dev/video2"] {
-                    if let Ok(b) = V4l2Backend::open(dev, SourceKind::Camera) {
+                    if let Ok(b) = V4l2Backend::open(dev) {
                         return Some(b);
                     }
                 }
@@ -374,17 +372,8 @@ mod tests {
 
     #[test]
     fn open_nonexistent_device_returns_error() {
-        let r = V4l2Backend::open("/dev/video_nonexistent_999", SourceKind::Camera);
+        let r = V4l2Backend::open("/dev/video_nonexistent_999");
         assert!(r.is_err());
-    }
-
-    #[test]
-    fn open_with_screen_kind_returns_invalid_config() {
-        match V4l2Backend::open("/dev/video0", SourceKind::Screen) {
-            Err(Error::InvalidConfig) => {}
-            Err(e) => panic!("expected InvalidConfig, got {e:?}"),
-            Ok(_) => panic!("Screen kind must not succeed on V4L2"),
-        }
     }
 
     #[test]
@@ -396,7 +385,7 @@ mod tests {
             eprintln!("skipping: no /dev/videoN exists");
             return;
         }
-        match V4l2Backend::open("default", SourceKind::Camera) {
+        match V4l2Backend::open("default") {
             Ok(_) => {} // успех
             Err(e) => {
                 // Может быть что все videoN — не capture (metadata nodes).

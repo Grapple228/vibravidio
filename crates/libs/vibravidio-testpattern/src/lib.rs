@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
+
 use vibravidio_core::{
-    CapturedFrame, ColorSpace, FrameInfo, PixelFormat, Result, SourceKind, VideoBackend,
-    VideoConfig, VideoFormatInfo,
+    CapturedFrame, ColorSpace, FrameInfo, PixelFormat, Result, VideoBackend, VideoConfig,
 };
 
 pub struct TestPatternBackend {
@@ -17,6 +17,22 @@ pub struct TestPatternBackend {
 }
 
 impl TestPatternBackend {
+    /// Создаёт backend с заданным конфигом. Не открывает никаких устройств —
+    /// просто предвычисляет фон и выставляет period по fps.
+    pub fn new(config: VideoConfig) -> Self {
+        let period = Duration::from_nanos(1_000_000_000u64 / config.fps.max(1) as u64);
+        let background = Self::precompute_background(&config);
+        Self {
+            config,
+            background: background.clone(),
+            buffer: background,
+            seq: 0,
+            last_emit: Instant::now(),
+            period,
+            start: Instant::now(),
+        }
+    }
+
     fn precompute_background(config: &VideoConfig) -> Vec<u8> {
         let w = config.width as usize;
         let h = config.height as usize;
@@ -70,36 +86,12 @@ impl TestPatternBackend {
 }
 
 impl VideoBackend for TestPatternBackend {
-    fn open(_name: &str, _kind: SourceKind) -> Result<Self> {
-        let config = VideoConfig::new(640, 480, 30, PixelFormat::Rgba8);
-        let background = Self::precompute_background(&config);
-        Ok(Self {
-            config,
-            background: background.clone(),
-            buffer: background,
-            seq: 0,
-            last_emit: Instant::now(),
-            period: Duration::from_millis(33),
-            start: Instant::now(),
-        })
-    }
-
     fn configure(&mut self, config: &VideoConfig) -> Result<()> {
         self.config = *config;
         self.period = Duration::from_nanos(1_000_000_000u64 / config.fps.max(1) as u64);
         self.background = Self::precompute_background(config);
         self.buffer = self.background.clone();
         Ok(())
-    }
-
-    fn supported_formats(&self) -> Result<Vec<VideoFormatInfo>> {
-        Ok(vec![VideoFormatInfo {
-            width: 1920,
-            height: 1080,
-            fps: 60,
-            format: PixelFormat::Rgba8,
-            color: ColorSpace::Srgb,
-        }])
     }
 
     fn capture_frame(&mut self) -> Result<Option<CapturedFrame<'_>>> {
@@ -136,17 +128,13 @@ impl VideoBackend for TestPatternBackend {
 
 #[cfg(test)]
 mod tests {
-    use crate::TestPatternBackend;
-    use std::time::{Duration, Instant};
-    use vibravidio_core::{PixelFormat, SourceKind, VideoBackend, VideoConfig};
+    use super::*;
 
     /// Детерминированный тест: формат кадра, stride, sequence.
     /// Не зависит от wall-clock (только ждёт первый кадр).
     #[test]
     fn frame_metadata_is_correct() {
-        let mut b = TestPatternBackend::open("default", SourceKind::Camera).unwrap();
-        b.configure(&VideoConfig::new(1280, 720, 60, PixelFormat::Rgba8))
-            .unwrap();
+        let mut b = TestPatternBackend::new(VideoConfig::new(1280, 720, 60, PixelFormat::Rgba8));
 
         // Первый кадр доступен только после истечения period (16.6 ms при 60fps).
         // Ждём с запасом, потом проверяем инварианты.
@@ -177,9 +165,7 @@ mod tests {
     #[test]
     #[cfg_attr(not(feature = "timing-tests"), ignore)]
     fn fps_pacing_is_60() {
-        let mut b = TestPatternBackend::open("default", SourceKind::Camera).unwrap();
-        b.configure(&VideoConfig::new(1280, 720, 60, PixelFormat::Rgba8))
-            .unwrap();
+        let mut b = TestPatternBackend::new(VideoConfig::new(1280, 720, 60, PixelFormat::Rgba8));
 
         // Прогрев: пропускаем первый кадр, чтобы period был «устаканен».
         std::thread::sleep(Duration::from_millis(20));

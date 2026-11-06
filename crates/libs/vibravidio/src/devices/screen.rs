@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use vibravidio_core::{Error, OwnedFrame, Result, SourceKind, VideoBackend, VideoConfig};
+use vibravidio_core::{Error, OwnedFrame, Result, VideoBackend, VideoConfig};
 use vibravidio_ringbuffer::BufferWriter;
 use vibravidio_thread::Priority;
 use vibravidio_thread::thread::{self, JoinHandle};
@@ -31,8 +31,11 @@ impl Screen {
         self
     }
 
-    pub fn run<const N: usize>(
+    /// Новый API: backend открыт снаружи через `ScreenBackend::open_source`.
+    /// Capture loop — sync, ничего async внутри.
+    pub fn run_with<const N: usize, B: VideoBackend>(
         &mut self,
+        mut backend: B,
         writer: BufferWriter<N, OwnedFrame>,
         priority: Priority,
         #[cfg(target_os = "windows")] mmcss_value: vibravidio_thread::MmcssValue,
@@ -41,7 +44,6 @@ impl Screen {
             return Err(Error::AlreadyRunning);
         }
 
-        let mut backend = DefaultScreenBackend::open("default", SourceKind::Screen)?;
         backend.configure(&self.config)?;
 
         // Флаг ДО spawn: поток проверяет его первой инструкцией в цикле.
@@ -85,6 +87,24 @@ impl Screen {
         Ok(())
     }
 
+    /// Sync fallback (тесты, старый API): открывает backend сам через
+    /// `DefaultScreenBackend::open_sync`. В проде — `run_with(open_source(...))`.
+    pub fn run<const N: usize>(
+        &mut self,
+        writer: BufferWriter<N, OwnedFrame>,
+        priority: Priority,
+        #[cfg(target_os = "windows")] mmcss_value: vibravidio_thread::MmcssValue,
+    ) -> Result<()> {
+        let backend = DefaultScreenBackend::open_sync("default")?;
+        self.run_with(
+            backend,
+            writer,
+            priority,
+            #[cfg(target_os = "windows")]
+            mmcss_value,
+        )
+    }
+
     pub fn stop(&mut self) {
         self.running.store(false, Ordering::SeqCst);
         if let Some(handle) = self.handle.take() {
@@ -111,10 +131,6 @@ mod tests {
     // Environment detection
     // ========================================================================
 
-    /// Wayland-сессия? XWayland выставляет `DISPLAY`, но root window там
-    /// содержит только X11-окна, а реальный desktop — Wayland-поверхность.
-    /// Плюс: Wayland screen capture требует интерактивного
-    /// xdg-desktop-portal диалога — в `cargo test` это зависание.
     fn is_wayland_session() -> bool {
         std::env::var("XDG_SESSION_TYPE")
             .map(|v| v.eq_ignore_ascii_case("wayland"))
@@ -122,21 +138,14 @@ mod tests {
             || std::env::var("WAYLAND_DISPLAY").is_ok()
     }
 
-    /// X11 есть только если задан `DISPLAY` и мы НЕ под Wayland
-    /// (XWayland root пуст — тесты screen capture бессмысленны).
     fn has_x11_display() -> bool {
         !is_wayland_session() && std::env::var("DISPLAY").is_ok_and(|v| !v.is_empty())
     }
 
-    /// Реальный X11 probe: открывает backend через "default".
-    /// Вызывать только после `has_x11_display()` — иначе под Wayland
-    /// пойдёт каскад на Wayland-портал и покажет диалог.
     fn open_screen_for_probe() -> bool {
-        DefaultScreenBackend::open("default", SourceKind::Screen).is_ok()
+        DefaultScreenBackend::open_sync("default").is_ok()
     }
 
-    /// Skip если screen capture недоступен в текущем окружении.
-    /// Под Wayland — ВСЕГДА skip: интерактивный портал + пустой XWayland root.
     macro_rules! skip_if_no_screen {
         () => {
             if is_wayland_session() {
@@ -160,8 +169,6 @@ mod tests {
 
     #[test]
     fn screen_new_does_not_open_display() {
-        // Screen::new только сохраняет config — backend не открывается,
-        // портал не вызывается, Xlib не трогается.
         let config = VideoConfig::new(640, 480, 15, PixelFormat::Bgra8);
         let screen = Screen::new(config);
         assert!(screen.is_ok());
@@ -169,8 +176,6 @@ mod tests {
 
     #[test]
     fn run_fails_without_display() {
-        // Под Wayland `run()` откроет портал — интерактивно, тест зависнет.
-        // Под X11 проверяем контракт: нет DISPLAY → Err.
         if is_wayland_session() {
             tracing::debug!("skipping: Wayland portal is interactive");
             return;
@@ -200,7 +205,6 @@ mod tests {
     fn full_pipeline_receives_frames() {
         skip_if_no_screen!();
 
-        // fps=60 → frame_duration ≈ 16ms, быстрее набираем кадры.
         let config = VideoConfig::new(640, 480, 60, PixelFormat::Bgra8);
         let mut screen = Screen::new(config).unwrap();
         let (writer, reader) = create_pair::<8, OwnedFrame>();
@@ -247,7 +251,6 @@ mod tests {
     fn format_is_always_bgra() {
         skip_if_no_screen!();
 
-        // config.format=Yuyv игнорируется X11Backend — всегда BGRA на 24/32bpp.
         let config = VideoConfig::new(640, 480, 60, PixelFormat::Yuyv);
         let mut screen = Screen::new(config).unwrap();
         let (writer, reader) = create_pair::<4, OwnedFrame>();
@@ -296,10 +299,8 @@ mod tests {
         std::thread::sleep(Duration::from_millis(200));
         screen.stop();
 
-        // Дренируем то, что producer успел положить до stop.
         while reader.read_frame().is_some() {}
 
-        // После stop новых быть не должно.
         std::thread::sleep(Duration::from_millis(200));
         assert!(reader.read_frame().is_none());
     }
@@ -308,7 +309,6 @@ mod tests {
     fn ring_overflow_drops_frame() {
         skip_if_no_screen!();
 
-        // N=1 — почти гарантированно переполнится за 500ms при 60fps.
         let config = VideoConfig::new(640, 480, 60, PixelFormat::Bgra8);
         let mut screen = Screen::new(config).unwrap();
         let (writer, reader) = create_pair::<1, OwnedFrame>();
@@ -354,7 +354,6 @@ mod tests {
                 .expect("run");
             std::thread::sleep(Duration::from_millis(150));
         }
-        // Drop → stop → join. Если зависнет — тест повиснет.
     }
 
     #[test]
@@ -427,18 +426,6 @@ mod tests {
     // Manual Wayland test (opt-in)
     // ========================================================================
 
-    /// Ручной тест Wayland-бэкенда. Запуск:
-    ///
-    /// ```bash
-    /// cargo test -r -p vibravidio -- \
-    ///     --ignored --test-threads=1 wayland_screen_capture_manual
-    /// ```
-    ///
-    /// Покажет xdg-desktop-portal диалог выбора монитора/окна. Выбери
-    /// источник. Тест ждёт первый кадр до 15 секунд.
-    ///
-    /// Не идёт в обычном `cargo test` (пометка `#[ignore]`): портал
-    /// интерактивный, в CI/headless тест зависнет.
     #[test]
     #[ignore = "requires interactive xdg-desktop-portal dialog; run manually"]
     fn wayland_screen_capture_manual() {

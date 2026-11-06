@@ -1,12 +1,13 @@
 use std::cell::Cell;
 use std::ffi::{c_int, c_uint};
+use std::future::Future;
 use std::ptr::NonNull;
 use std::sync::Once;
 use std::time::{Duration, Instant};
 
 use vibravidio_core::{
-    CapturedFrame, ColorSpace, Error, FrameInfo, PixelFormat, Result, SourceKind, VideoBackend,
-    VideoConfig, VideoFormatInfo,
+    CaptureSource, CaptureSourceKind, CapturedFrame, ColorSpace, Error, FrameInfo, PixelFormat,
+    Result, ScreenBackend, SourceDiscovery, VideoBackend, VideoConfig,
 };
 
 use crate::ffi;
@@ -89,7 +90,7 @@ fn ensure_xlib_ready() -> Result<()> {
 /// надёжный тест.
 ///
 /// Внимание: probe делается ДО установки основного shm-сегмента в backend,
-/// поэтому при неудаче `open()` вернёт `UnsupportedFormat`, и `Screen::run`
+/// поэтому при неудаче `open_sync` вернёт `UnsupportedFormat`, и `Screen::run`
 /// откажется стартовать до создания потока.
 fn probe_shm(display: *mut ffi::Display) -> bool {
     const PROBE_SIZE: usize = 4096;
@@ -166,49 +167,10 @@ pub struct X11ScreenBackend {
 unsafe impl Send for X11ScreenBackend {}
 
 impl X11ScreenBackend {
-    fn release(&mut self) {
-        if let Some(img) = self.ximage.take() {
-            clear_x_errors();
-            unsafe {
-                ffi::XShmDetach(self.display, self.shm.as_mut());
-                ffi::XFree(img.as_ptr() as *mut _);
-            }
-            unsafe { ffi::XSync(self.display, 0) };
-            let _ = take_x_error();
-        }
-        if !self.shm.shmaddr.is_null() {
-            unsafe { ffi::shmdt(self.shm.shmaddr as *const _) };
-            self.shm.shmaddr = std::ptr::null_mut();
-        }
-    }
-
-    /// Освобождает частично-инициализированное состояние после ошибки в
-    /// `configure`. Обнуляет `self.shm`, чтобы `Drop::release` не сделал
-    /// повторный `shmdt` на уже отцепленный адрес (SIGSEGV).
-    fn cleanup_partial(&mut self, img: *mut ffi::XImage, addr: *mut u8, shmid: c_int) {
-        unsafe {
-            if !img.is_null() {
-                ffi::XFree(img as *mut _);
-            }
-            if !addr.is_null() {
-                ffi::shmdt(addr as *const _);
-            }
-            if shmid >= 0 {
-                ffi::shmctl(shmid, ffi::IPC_RMID, std::ptr::null_mut());
-            }
-        }
-        self.shm.shmaddr = std::ptr::null_mut();
-        self.shm.shmid = 0;
-        self.ximage = None;
-    }
-}
-
-impl VideoBackend for X11ScreenBackend {
-    fn open(name: &str, kind: SourceKind) -> Result<Self> {
-        if !matches!(kind, SourceKind::Screen) {
-            return Err(Error::InvalidConfig);
-        }
-
+    /// Sync open. Вызывающий сам решает, когда: `Screen::run` (тесты),
+    /// `DefaultScreenBackend::open_sync` (fallback), `open_source` (async path
+    /// внутри ready-future). Не в трейте — inherent, как договорились.
+    pub fn open_sync(name: &str) -> Result<Self> {
         ensure_xlib_ready()?;
 
         let cname = if name == "default" {
@@ -257,6 +219,68 @@ impl VideoBackend for X11ScreenBackend {
         })
     }
 
+    fn release(&mut self) {
+        if let Some(img) = self.ximage.take() {
+            clear_x_errors();
+            unsafe {
+                ffi::XShmDetach(self.display, self.shm.as_mut());
+                ffi::XFree(img.as_ptr() as *mut _);
+            }
+            unsafe { ffi::XSync(self.display, 0) };
+            let _ = take_x_error();
+        }
+        if !self.shm.shmaddr.is_null() {
+            unsafe { ffi::shmdt(self.shm.shmaddr as *const _) };
+            self.shm.shmaddr = std::ptr::null_mut();
+        }
+    }
+
+    /// Освобождает частично-инициализированное состояние после ошибки в
+    /// `configure`. Обнуляет `self.shm`, чтобы `Drop::release` не сделал
+    /// повторный `shmdt` на уже отцепленный адрес (SIGSEGV).
+    fn cleanup_partial(&mut self, img: *mut ffi::XImage, addr: *mut u8, shmid: c_int) {
+        unsafe {
+            if !img.is_null() {
+                ffi::XFree(img as *mut _);
+            }
+            if !addr.is_null() {
+                ffi::shmdt(addr as *const _);
+            }
+            if shmid >= 0 {
+                ffi::shmctl(shmid, ffi::IPC_RMID, std::ptr::null_mut());
+            }
+        }
+        self.shm.shmaddr = std::ptr::null_mut();
+        self.shm.shmid = 0;
+        self.ximage = None;
+    }
+}
+
+impl ScreenBackend for X11ScreenBackend {
+    fn discover() -> Result<SourceDiscovery> {
+        // MVP: только root window. Полный список мониторов/окон (XRandR /
+        // XQueryTree + превью) — отдельным этапом, здесь только один источник.
+        Ok(SourceDiscovery::Direct(vec![CaptureSource {
+            id: "x11:root".into(),
+            name: "Entire screen".into(),
+            kind: CaptureSourceKind::Monitor,
+            thumbnail: None,
+        }]))
+    }
+
+    fn open_source(source: &CaptureSource) -> impl Future<Output = Result<Self>> + Send {
+        let id = source.id.clone();
+        // Sync под капотом — future готова сразу, без `.await` внутри.
+        async move {
+            match id.as_str() {
+                "x11:root" | "default" => Self::open_sync("default"),
+                _ => Err(Error::InvalidConfig),
+            }
+        }
+    }
+}
+
+impl VideoBackend for X11ScreenBackend {
     fn configure(&mut self, config: &VideoConfig) -> Result<()> {
         self.release();
 
@@ -347,16 +371,6 @@ impl VideoBackend for X11ScreenBackend {
         self.frame_duration = Duration::from_nanos(1_000_000_000 / fps);
         self.last_capture = Instant::now() - self.frame_duration;
         Ok(())
-    }
-
-    fn supported_formats(&self) -> Result<Vec<VideoFormatInfo>> {
-        Ok(vec![VideoFormatInfo {
-            width: self.width,
-            height: self.height,
-            fps: 30,
-            format: PixelFormat::Bgra8,
-            color: ColorSpace::Srgb,
-        }])
     }
 
     fn capture_frame(&mut self) -> Result<Option<CapturedFrame<'_>>> {

@@ -1,20 +1,23 @@
+use std::future::Future;
 use std::sync::mpsc::{Receiver, sync_channel};
 use std::time::Instant;
 
 use tracing::info;
 use vibravidio_core::{
-    CapturedFrame, ColorSpace, Error, FrameInfo, PixelFormat, Result, SourceKind, VideoBackend,
-    VideoConfig, VideoFormatInfo,
+    CaptureSource, CapturedFrame, ColorSpace, Error, FrameInfo, PixelFormat, Result, ScreenBackend,
+    SourceDiscovery, VideoBackend, VideoConfig,
 };
 
 use crate::pipewire_reader::{FrameData, PipeWireReader};
-use crate::portal::open_portal_stream;
+use crate::portal::{PortalStream, open_portal_stream, open_portal_stream_async};
 
 pub struct WaylandScreenBackend {
     receiver: Receiver<FrameData>,
     reader: Option<PipeWireReader>,
     last_frame: Option<FrameData>,
+    #[allow(unused)]
     width: u32,
+    #[allow(unused)]
     height: u32,
     #[allow(unused)]
     stride: u32,
@@ -24,16 +27,27 @@ pub struct WaylandScreenBackend {
     start: Instant,
 }
 
-impl VideoBackend for WaylandScreenBackend {
-    fn open(_name: &str, kind: SourceKind) -> Result<Self> {
-        if !matches!(kind, SourceKind::Screen) {
-            return Err(Error::InvalidConfig);
-        }
-
+impl WaylandScreenBackend {
+    /// Sync open. Внутри — `open_portal_stream()` (spawn + block_on).
+    /// Для `Screen::run` в тестах и sync-fallback в `DefaultScreenBackend`.
+    pub fn open_sync(_name: &str) -> Result<Self> {
         let portal = open_portal_stream().map_err(|e| {
             tracing::warn!("Wayland portal error: {e}");
             Error::UnsupportedFormat
         })?;
+        Self::from_portal(portal)
+    }
+
+    /// Async open. Единственный правильный путь в проде.
+    pub async fn open_async() -> Result<Self> {
+        let portal = open_portal_stream_async().await.map_err(|e| {
+            tracing::warn!("Wayland portal error: {e}");
+            Error::UnsupportedFormat
+        })?;
+        Self::from_portal(portal)
+    }
+
+    fn from_portal(portal: PortalStream) -> Result<Self> {
         info!(
             node_id = portal.node_id,
             width = portal.width,
@@ -58,9 +72,31 @@ impl VideoBackend for WaylandScreenBackend {
             start: Instant::now(),
         })
     }
+}
 
-    // ... остальное тело без изменений
+impl ScreenBackend for WaylandScreenBackend {
+    fn discover() -> Result<SourceDiscovery> {
+        // MVP: без restore token store. Портал показан один раз, дальше — снова.
+        Ok(SourceDiscovery::Portal {
+            saved: Vec::<CaptureSource>::new(),
+            reason: "Wayland session requires xdg-desktop-portal dialog for new sources".into(),
+        })
+    }
+
+    fn open_source(_source: &CaptureSource) -> impl Future<Output = Result<Self>> + Send {
+        // Реальный async — portal через D-Bus.
+        async move { Self::open_async().await }
+    }
+
+    // take_restore_token — default None (без token store пока).
+    // Источник `CaptureSourceKind::Remembered` игнорируется, пока нет store;
+    // добавление — отдельный этап вместе с `PersistMode::Application`.
+}
+
+impl VideoBackend for WaylandScreenBackend {
     fn configure(&mut self, _config: &VideoConfig) -> Result<()> {
+        // PipeWire сам пейсит: композитор отдаёт кадры с той частотой,
+        // с которой обновляется экран. Дополнительный rate-limit не нужен.
         Ok(())
     }
 
@@ -86,16 +122,6 @@ impl VideoBackend for WaylandScreenBackend {
             }
             Err(_) => Ok(None),
         }
-    }
-
-    fn supported_formats(&self) -> Result<Vec<VideoFormatInfo>> {
-        Ok(vec![VideoFormatInfo {
-            width: self.width,
-            height: self.height,
-            fps: 30,
-            format: PixelFormat::Bgra8,
-            color: ColorSpace::Srgb,
-        }])
     }
 
     fn reset(&mut self) -> Result<()> {

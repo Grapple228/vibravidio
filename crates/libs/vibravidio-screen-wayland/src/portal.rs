@@ -33,7 +33,7 @@ pub fn open_portal_stream() -> Result<PortalStream, String> {
         .map_err(|_| "portal thread panicked".to_string())?
 }
 
-async fn open_portal_stream_async() -> Result<PortalStream, String> {
+pub async fn open_portal_stream_async() -> Result<PortalStream, String> {
     let proxy = Screencast::new().await.map_err(|e| e.to_string())?;
     let session = proxy
         .create_session(Default::default())

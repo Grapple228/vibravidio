@@ -43,8 +43,6 @@ compile_error!("vibravidio currently supports only Linux");
 
 #[cfg(test)]
 mod tests {
-    use vibravidio_core::VideoBackend;
-
     use crate::{backend, platform};
 
     #[test]
@@ -69,10 +67,9 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn backend_v4l2_is_accessible() {
-        let _ = backend::camera::v4l2::V4l2Backend::open(
-            "/dev/video_nonexistent_999",
-            vibravidio_core::SourceKind::Camera,
-        );
+        use vibravidio_core::CameraBackend;
+
+        let _ = backend::camera::v4l2::V4l2Backend::open("/dev/video_nonexistent_999");
     }
 
     #[test]

@@ -6,7 +6,6 @@ pub use backend::X11ScreenBackend;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vibravidio_core::{SourceKind, VideoBackend};
 
     #[test]
     fn init_threads_is_idempotent() {
@@ -14,8 +13,8 @@ mod tests {
         // Если XInitThreads недоступен на платформе — open вернёт
         // DeviceNotFound раньше, но ensure_xlib_threads не паникует.
         let _ = std::panic::catch_unwind(|| {
-            let _ = X11ScreenBackend::open(":99.99", SourceKind::Screen);
-            let _ = X11ScreenBackend::open(":99.99", SourceKind::Screen);
+            let _ = X11ScreenBackend::open_sync(":99.99");
+            let _ = X11ScreenBackend::open_sync(":99.99");
         });
     }
 }
